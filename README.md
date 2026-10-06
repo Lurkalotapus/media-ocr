@@ -2,6 +2,19 @@
 
 Media OCR is a local-first, review-oriented workflow for extracting text from local images, image sequences, and text-on-video. It produces three distinct layers: raw/enriched evidence, a Markdown review draft, and a human-reviewed final reference note. Instagram is one possible source of staged media; it is not a special integration.
 
+## Agent-assisted use
+
+Media OCR works from the command line, but is designed to be especially useful
+when paired with an agent that can follow `skill/SKILL.md`.
+
+An agent can help stage a repeatable workflow, run preflight checks, process
+local media, preserve provenance records, and prepare review drafts. It must
+not independently acquire media, infer missing rights or attribution, or treat
+OCR output as verified knowledge.
+
+A human operator remains responsible for source selection, authorisation,
+provenance, review, and the decision to promote material into a final note.
+
 ## Scope and acquisition boundary
 
 Media OCR processes **only local files**. It does not fetch URLs, log into platforms, download media, or collect content. Acquisition is a separate stage that supplies local media and its provenance.
