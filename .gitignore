@@ -1,0 +1,19 @@
+# Python environments and caches
+.venv/
+__pycache__/
+*.py[cod]
+.pytest_cache/
+.ruff_cache/
+.mypy_cache/
+
+# Local OCR artifacts and downloaded models
+ocr-output/
+ocr-output-final/
+frames/
+*.onnx
+models/
+
+# Editors and operating systems
+.vscode/
+.idea/
+.DS_Store

@@ -1,0 +1,11 @@
+# Runtime dependencies
+
+# Base OCR environment
+rapidocr==3.9.2
+onnxruntime==1.30.0
+pillow==12.3.0
+imageio-ffmpeg==0.6.0
+
+# Optional speech review pass
+# Install only when audio transcription is needed.
+faster-whisper==1.2.1
