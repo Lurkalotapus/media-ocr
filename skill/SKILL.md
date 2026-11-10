@@ -138,7 +138,46 @@ It samples at one frame per second by default, removes visually near-identical c
 
 For word-by-word animated text, start at `--fps 4 --dedupe-threshold 0.5`; the ordinary 1 fps setting will miss short-lived words. This captures partial build states too, so reconstruct the final sentence from the most complete successive frames and preserve uncertainty where a word never appears cleanly.
 
-This workflow is deliberately **text-on-video only** by default. It does not transcribe narration or audio unless the optional speech pass below is explicitly requested.
+### Batch text-on-video OCR
+
+For a directory of clips — a staged intake inbox, a saved folder, a camera dump —
+use the batch driver rather than looping the single-clip wrapper. It walks the
+tree, picks a sampling rate per clip from its duration, carries provenance from
+each item's `source.md` into the video's own source record, resumes where it left
+off, and writes a JSON report:
+
+```bash
+~/.local/share/media-ocr/.venv/bin/python scripts/ocr_video_batch.py \
+  --input /path/to/local-media \
+  --workers 3 \
+  --report /path/to/local-media/_video-ocr-report.json \
+  --dry-run                       # plan only: list clips, durations, chosen fps
+```
+
+Each clip gets `<clip>/frames/`, `<clip>/frame-manifest.json`, `<clip>/source.md`,
+`<clip>/ocr-output/` and `<clip>/ocr-output-final/` beside it, so an item directory
+stays self-contained. A clip with an existing `ocr-output/ocr-draft.md` is skipped
+unless `--force` is passed. `--only <item-dir>` restricts a run; `--fps` overrides
+the automatic rate; `--min-fps` sets a floor for sparse-caption material.
+
+Do not invent provenance when the item has no `source.md`: the batch driver simply
+omits the fields, exactly as the single-clip wrapper does.
+
+#### The dedupe threshold is not the same number as the single-clip default
+
+`frame_difference()` downscales each frame to 32×32 grayscale and takes the mean
+difference. Sparse caption text on a large static frame scores only **~0.3-0.4**,
+so the single-clip default of `--dedupe-threshold 3.0` — which suits whole-scene
+changes — silently keeps **one frame per clip**. The batch driver defaults to `0.4`
+for that reason.
+
+Measured on a 720×1280 fixture with three caption swaps: `0.4` retained all three,
+`0.5` retained one. If a batch produces suspiciously few frames per clip, lower the
+threshold before assuming the source clip was static.
+
+This workflow remains **text-on-video only** by default. It does not transcribe
+narration unless the optional speech pass below is explicitly requested — which
+matters for Reels, where the useful content is frequently spoken rather than shown.
 
 ### Optional speech-to-text review pass
 
