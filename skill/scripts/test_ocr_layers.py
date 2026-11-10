@@ -78,3 +78,28 @@ class OcrLayerTests(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+class CapturedMediaLinkTests(unittest.TestCase):
+    """The draft's media link must point at a file that exists."""
+
+    def build(self, records, prefix="../"):
+        return ocr_batch.markdown_report(records, 0.9, "Title", None, {}, prefix)
+
+    def record(self, name):
+        return {"file": name, "lines": [
+            {"box": [[0, 0], [100, 0], [100, 20], [0, 20]], "text": "Some caption", "confidence": 0.99},
+        ]}
+
+    def test_image_slide_link_is_unchanged(self):
+        report = self.build([self.record("01.jpg"), self.record("02.jpg")])
+        self.assertIn("[[../01.jpg|first captured file]]", report)
+
+    def test_video_frame_link_uses_the_real_frame_name(self):
+        report = self.build([self.record("frame_000001.jpg")], prefix="../frames/")
+        self.assertIn("[[../frames/frame_000001.jpg|first captured file]]", report)
+        self.assertNotIn("../frames/01.jpg", report)
+
+    def test_no_media_records_means_no_link_line(self):
+        report = self.build([])
+        self.assertNotIn("Captured images", report)
+        self.assertIn("Source record", report)

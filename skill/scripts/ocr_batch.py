@@ -325,7 +325,12 @@ def markdown_report(records: list[dict[str, Any]], threshold: float, title: str,
             lines.append(f"- **{escape_markdown(key)}:** {escape_markdown(value)}")
     if source.get("Notes"):
         lines.append(f"- **Notes:** {escape_markdown(source['Notes'])}")
-    lines.extend((f"- **Captured images:** [[{safe_wikilink_path(image_link_prefix)}01.jpg|carousel slide files]]", "- **Source record:** [[../source.md|source.md]]", "", "## OCR Confidence Scores", ""))
+    # Link the media that actually exists. Hardcoding 01.jpg produced a dangling
+    # wikilink for video output, whose sampled frames are named frame_000001.jpg.
+    if records:
+        first_media = safe_wikilink_path(f"{image_link_prefix}{records[0]['file']}")
+        lines.append(f"- **Captured images:** [[{first_media}|first captured file]]")
+    lines.extend(("- **Source record:** [[../source.md|source.md]]", "", "## OCR Confidence Scores", ""))
     lines.append(f"- **Average:** {'n/a' if average is None else f'{average:.2f}'}")
     if review:
         for file_name, score, text in review:
