@@ -24,8 +24,10 @@ import argparse
 import json
 import os
 import re
+import shutil
 import subprocess
 import sys
+import threading
 import time
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from dataclasses import dataclass
@@ -57,6 +59,32 @@ class Job:
     source_url: str | None
     creator: str | None
     item: str
+
+
+
+def cpu_slices(total_cores: int, per_worker: int, workers: int) -> list[str]:
+    """Per-worker taskset ranges.
+
+    ONNX Runtime sizes its intra-op thread pool from the core count and ignores
+    OMP_NUM_THREADS, so N concurrent workers oversubscribe the machine roughly N
+    times over. Pinning each worker to a slice bounds total CPU use.
+    """
+    per_worker = max(1, per_worker)
+    usable = min(total_cores, per_worker * max(1, workers))
+    ranges = []
+    for index in range(max(1, workers)):
+        start = index * per_worker
+        if start >= usable:
+            break
+        ranges.append(f"{start}-{min(start + per_worker, usable) - 1}")
+    return ranges or [f"0-{max(0, total_cores - 1)}"]
+
+
+def pinned_command(command: list[str], cpu_range: str | None) -> list[str]:
+    if not cpu_range:
+        return command
+    taskset = shutil.which("taskset")
+    return [taskset, "-c", cpu_range, *command] if taskset else command
 
 
 def public_path(path: Path) -> str:
@@ -156,7 +184,7 @@ def build_jobs(root: Path, *, fps: float | None, min_fps: float, ffmpeg: str, on
     return jobs
 
 
-def run_job(job: Job, script: Path, python: str, threads: int, timeout: int, dedupe: float, roi: str | None) -> dict[str, Any]:
+def run_job(job: Job, script: Path, python: str, threads: int, timeout: int, dedupe: float, roi: str | None, cpu_range: str | None = None) -> dict[str, Any]:
     command = [
         python, str(script),
         "--input", str(job.video),
@@ -174,7 +202,7 @@ def run_job(job: Job, script: Path, python: str, threads: int, timeout: int, ded
     env = {**os.environ, "OMP_NUM_THREADS": str(threads), "OpenBLAS_NUM_THREADS": str(threads), "MKL_NUM_THREADS": str(threads)}
     started = time.monotonic()
     try:
-        result = subprocess.run(command, capture_output=True, text=True, timeout=timeout, env=env)
+        result = subprocess.run(pinned_command(command, cpu_range), capture_output=True, text=True, timeout=timeout, env=env)
     except subprocess.TimeoutExpired:
         return {"video": public_path(job.video), "item": job.item, "status": "timeout", "fps": job.fps, "duration": job.duration}
     elapsed = round(time.monotonic() - started, 1)
@@ -220,6 +248,7 @@ def main(argv: Sequence[str] | None = None) -> int:
     parser.add_argument("--roi", help="Optional foreground crop: left,top,right,bottom as frame fractions.")
     parser.add_argument("--workers", type=int, default=3, help="Clips processed concurrently (default 3).")
     parser.add_argument("--threads", type=int, default=4, help="ONNX/OpenMP threads per worker (default 4).")
+    parser.add_argument("--cpus-per-worker", type=int, default=6, help="cores pinned per worker (default 6; bounds total CPU).")
     parser.add_argument("--timeout", type=int, default=1800, help="Per-clip timeout in seconds.")
     parser.add_argument("--only", action="append", help="Restrict to these item directory names (repeatable).")
     parser.add_argument("--force", action="store_true", help="Re-run clips that already have a draft.")
@@ -252,13 +281,28 @@ def main(argv: Sequence[str] | None = None) -> int:
     if not pending:
         print(f"Nothing to do: {len(jobs)} video(s), all already drafted.")
 
+    slices = cpu_slices(os.cpu_count() or 1, args.cpus_per_worker, args.workers)
+    print(f"workers: {args.workers}, {args.cpus_per_worker} core(s) each → slices {', '.join(slices)}", flush=True)
     results: list[dict[str, Any]] = []
     done = 0
+    slice_gate = threading.Lock()
+    slice_slots = list(slices)
+
+    def next_slice() -> str | None:
+        with slice_gate:
+            return slice_slots.pop(0) if slice_slots else None
+
+    def run_pinned(job: Job) -> dict[str, Any]:
+        cpu_range = next_slice()
+        try:
+            return run_job(job, script, sys.executable, args.threads, args.timeout, args.dedupe_threshold, args.roi, cpu_range)
+        finally:
+            if cpu_range:
+                with slice_gate:
+                    slice_slots.append(cpu_range)
+
     with ThreadPoolExecutor(max_workers=max(1, args.workers)) as pool:
-        futures = {
-            pool.submit(run_job, job, script, sys.executable, args.threads, args.timeout, args.dedupe_threshold, args.roi): job
-            for job in pending
-        }
+        futures = {pool.submit(run_pinned, job): job for job in pending}
         for future in as_completed(futures):
             outcome = future.result()
             results.append(outcome)
